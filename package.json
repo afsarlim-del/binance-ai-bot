@@ -1,0 +1,16 @@
+{
+  "name": "binance-ai-bot",
+  "version": "1.0.0",
+  "description": "Binance Futures AI Trading Bot - Cloudflare Workers",
+  "main": "src/worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secret:binance-key": "wrangler secret put BINANCE_API_KEY",
+    "secret:binance-secret": "wrangler secret put BINANCE_SECRET",
+    "secret:claude-key": "wrangler secret put CLAUDE_API_KEY"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

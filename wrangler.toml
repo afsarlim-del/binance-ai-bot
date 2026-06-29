@@ -1,0 +1,17 @@
+name = "binance-ai-bot"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/3 * * * *"]
+
+[[kv_namespaces]]
+binding = "BOT_KV"
+id = "BURAYA_KV_ID_GELECEK"
+
+# Secrets (wrangler secret put ile ekle):
+# BINANCE_API_KEY
+# BINANCE_SECRET
+# CLAUDE_API_KEY
+# COINGLASS_API_KEY
