@@ -4,6 +4,8 @@
 // Data: Binance Ücretsiz API
 // ============================================
 
+import DASHBOARD_HTML from "../dashboard.html";
+
 const BINANCE_BASE = "https://fapi.binance.com";
 const BINANCE_DATA = "https://fapi.binance.com/futures/data";
 
@@ -12,6 +14,24 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+// ── Pozisyon Yönetimi Ayarları ────────────────
+// NOT: ROI = marj bazlı kârlılık (PnL / başlangıç marjı), kaldıraç dahil.
+// Örn. 8x kaldıraçta %30 ROI ≈ fiyatta %3.75 hareket demektir.
+// Fiyat bazlı yüzde istersen ROI değerlerini kaldıraca bölerek düşün.
+const ROI_TAKE_MIN = 25;   // % — bu kârlılıktan sonra kârı korumaya başla
+const ROI_TAKE_MAX = 40;   // % — trend güçlü değilse burada kapat (yeterli)
+const ADX_TREND    = 25;   // ADX bu değerin üstündeyse trend güçlü → açık tut
+const TRAIL_MIN    = 0.4;  // trailing stop geri çekilme payı alt sınır (%)
+const TRAIL_MAX    = 4.0;  // trailing stop geri çekilme payı üst sınır (%)
+
+// ── Kaldıraç Kararı (bot verir, AI değil) ─────
+const MARGIN_TYPE  = "ISOLATED"; // tüm işlemler izole marj
+const LEV_BASE     = 10;   // taban kaldıraç
+const LEV_AGGR     = 20;   // agresif kaldıraç (güçlü + temiz kurulum)
+const LEV_AGGR_ADX = 28;   // 20x için min ADX (güçlü trend)
+const LEV_AGGR_CONF= 75;   // 20x için min AI güveni
+const LEV_AGGR_ATR = 1.5;  // 20x için max volatilite (ATR %); üstündeyse 10x
 
 function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -187,6 +207,56 @@ function calcBB(closes, period = 20) {
   return { upper: mean + 2 * std, middle: mean, lower: mean - 2 * std };
 }
 
+// ATR — Ortalama Gerçek Aralık (volatilite). Trailing mesafesini ayarlamak için.
+function calcATR(klines, period = 14) {
+  const trs = [];
+  for (let i = 1; i < klines.length; i++) {
+    const h = klines[i].high, l = klines[i].low, pc = klines[i - 1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < period) return trs.reduce((a, b) => a + b, 0) / (trs.length || 1);
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) atr = (atr * (period - 1) + trs[i]) / period;
+  return atr;
+}
+
+// ADX (+DI / -DI) — Wilder. Trendin GÜCÜNÜ ölçer.
+// ADX yüksek + DI yönlü = güçlü trend → pozisyonu açık tut. ADX düşük = trend yok → kârı al.
+function calcADX(klines, period = 14) {
+  const len = klines.length;
+  if (len < period * 2) return { adx: 0, plusDI: 0, minusDI: 0 };
+  const tr = [], plusDM = [], minusDM = [];
+  for (let i = 1; i < len; i++) {
+    const up = klines[i].high - klines[i - 1].high;
+    const down = klines[i - 1].low - klines[i].low;
+    plusDM.push(up > down && up > 0 ? up : 0);
+    minusDM.push(down > up && down > 0 ? down : 0);
+    const h = klines[i].high, l = klines[i].low, pc = klines[i - 1].close;
+    tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const smooth = (arr) => {
+    let s = arr.slice(0, period).reduce((a, b) => a + b, 0);
+    const out = [s];
+    for (let i = period; i < arr.length; i++) { s = s - s / period + arr[i]; out.push(s); }
+    return out;
+  };
+  const trS = smooth(tr), pS = smooth(plusDM), mS = smooth(minusDM);
+  const dx = [];
+  for (let i = 0; i < trS.length; i++) {
+    const pDI = 100 * (pS[i] / (trS[i] || 1e-9));
+    const mDI = 100 * (mS[i] / (trS[i] || 1e-9));
+    dx.push(100 * Math.abs(pDI - mDI) / ((pDI + mDI) || 1e-9));
+  }
+  let adx = dx.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dx.length; i++) adx = (adx * (period - 1) + dx[i]) / period;
+  const lastTR = trS[trS.length - 1] || 1e-9;
+  return {
+    adx,
+    plusDI: 100 * (pS[pS.length - 1] / lastTR),
+    minusDI: 100 * (mS[mS.length - 1] / lastTR),
+  };
+}
+
 function analyzeIndicators(klines) {
   const closes = klines.map((k) => k.close);
   const volumes = klines.map((k) => k.volume);
@@ -195,6 +265,8 @@ function analyzeIndicators(klines) {
   const ema50 = calcEMA(closes, 50);
   const macd = calcEMA(closes, 12) - calcEMA(closes, 26);
   const bb = calcBB(closes);
+  const atr = calcATR(klines);
+  const { adx, plusDI, minusDI } = calcADX(klines);
   const price = closes[closes.length - 1];
   const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const volRatio = volumes[volumes.length - 1] / avgVol;
@@ -208,8 +280,22 @@ function analyzeIndicators(klines) {
     bb_lower: +bb.lower.toFixed(6),
     currentPrice: +price.toFixed(6),
     volumeRatio: +volRatio.toFixed(2),
+    atr: +atr.toFixed(6),
+    atrPct: +((atr / price) * 100).toFixed(2),
+    adx: +adx.toFixed(1),
+    plusDI: +plusDI.toFixed(1),
+    minusDI: +minusDI.toFixed(1),
     trend: ema20 > ema50 ? "BULLISH" : "BEARISH",
   };
+}
+
+// Kaldıracı pozisyon durumuna göre bot seçer: 20x sadece güçlü trend + yüksek
+// güven + düşük volatilite varsa; aksi halde güvenli taban olan 10x.
+function decideLeverage(decision, ind) {
+  const strong    = (ind.adx || 0) >= LEV_AGGR_ADX;
+  const confident = (decision.confidence || 0) >= LEV_AGGR_CONF;
+  const calm      = (ind.atrPct || 99) <= LEV_AGGR_ATR;
+  return (strong && confident && calm) ? LEV_AGGR : LEV_BASE;
 }
 
 // ── Order Book Doğrulaması ────────────────────
@@ -270,8 +356,9 @@ Long/Short: ${marketData.ls?.ratio || "N/A"} (${marketData.ls?.bias || "N/A"})
 Funding: ${marketData.funding?.rate || "N/A"}% (${marketData.funding?.sentiment || "N/A"})
 OI Trend: ${marketData.oi?.trend || "N/A"} (${marketData.oi?.changePct || "N/A"}%)
 Taker: ${marketData.taker?.pressure || "N/A"}
+ADX: ${indicators.adx} | +DI/-DI: ${indicators.plusDI}/${indicators.minusDI} | ATR: %${indicators.atrPct}
 
-Rules: SHORT_SQUEEZE_POTENTIAL+OI_RISING+BUY_PRESSURE=LONG, OVERLEVERAGED_LONG+RSI>75+OI_FALLING=SHORT, keep TP 1-3%, SL 0.5-1.5%, max 8x leverage.
+Rules: SHORT_SQUEEZE_POTENTIAL+OI_RISING+BUY_PRESSURE=LONG, OVERLEVERAGED_LONG+RSI>75+OI_FALLING=SHORT, prefer ADX>25 with aligned DI (trend strong), keep SL 0.5-1.5%, max 8x leverage. take_profit_pct is just a hint — exit is managed by trailing stop + ADX.
 
 {"action":"LONG or SHORT or SKIP","confidence":0-100,"leverage":2-8,"take_profit_pct":0.5-3,"stop_loss_pct":0.3-1.5,"reason":"Turkish one sentence"}`;
 
@@ -308,6 +395,8 @@ L/S Oranı: ${marketData.ls?.ratio || "N/A"} → ${marketData.ls?.bias || "N/A"}
 Funding: %${marketData.funding?.rate || "N/A"} → ${marketData.funding?.sentiment || "N/A"}
 OI: %${marketData.oi?.changePct || "N/A"} → ${marketData.oi?.trend || "N/A"}
 Taker: ${marketData.taker?.pressure || "N/A"}
+ADX: ${indicators.adx} | +DI/-DI: ${indicators.plusDI}/${indicators.minusDI} | ATR: %${indicators.atrPct}
+NOT: Güçlü trend için ADX>25 ve DI yönü uyumlu olmalı. Çıkış trailing stop + ADX ile yönetiliyor, take_profit_pct sadece referans.
 
 {"action":"LONG veya SHORT veya SKIP","confidence":0-100,"leverage":2-10,"take_profit_pct":1.5-8,"stop_loss_pct":0.8-3,"reason":"Türkçe tek cümle"}`;
 
@@ -353,28 +442,121 @@ async function getOpenPositions(env) {
     }));
 }
 
-async function placeOrder(env, symbol, side, quantity, leverage, tpPct, slPct) {
+// ── Aktif Pozisyon Yönetimi ───────────────────
+// Her döngüde açık pozisyonlara bakar:
+//  • ROI < %ROI_TAKE_MIN  → dokunma (trailing/SL zaten korur)
+//  • ROI ≥ eşik + trend güçlü (ADX)   → AÇIK TUT, koşmaya devam etsin
+//  • ROI ≥ eşik + trend zayıf/dönüyor → kârı al, pozisyonu kapat
+async function managePositions(env, log) {
+  const pos = await binanceRequest(env, "GET", "/fapi/v2/positionRisk");
+  const open = pos.filter((p) => parseFloat(p.positionAmt) !== 0);
+  if (open.length === 0) { log("  (açık pozisyon yok)"); return; }
+
+  for (const p of open) {
+    const amt = parseFloat(p.positionAmt);
+    const entry = parseFloat(p.entryPrice);
+    const lev = parseFloat(p.leverage) || 1;
+    const pnl = parseFloat(p.unRealizedProfit ?? p.unrealizedProfit ?? 0);
+    const isLong = amt > 0;
+    const margin = (Math.abs(amt) * entry) / lev;
+    const roi = margin > 0 ? (pnl / margin) * 100 : 0;
+
+    if (roi < ROI_TAKE_MIN) {
+      log(`  ⏳ ${p.symbol}: ROI %${roi.toFixed(1)} (<${ROI_TAKE_MIN}) — bekleniyor`);
+      continue;
+    }
+
+    // Trend gücünü ölç
+    let ind;
+    try {
+      ind = analyzeIndicators(await getKlines(p.symbol, "3m", 100));
+    } catch {
+      log(`  ⚠️ ${p.symbol}: veri alınamadı, dokunulmadı`);
+      continue;
+    }
+    const trendStrong =
+      ind.adx >= ADX_TREND &&
+      (isLong ? ind.plusDI > ind.minusDI && ind.rsi < 80
+              : ind.minusDI > ind.plusDI && ind.rsi > 20);
+
+    if (trendStrong) {
+      log(`  🔥 ${p.symbol}: ROI %${roi.toFixed(1)} | ADX ${ind.adx} güçlü → AÇIK TUTULUYOR (trailing koruyor)`);
+      continue; // fırsat sürüyor → bırak koşsun
+    }
+
+    // Trend zayıfladı ve kâr yeterli (≥%25, çoğu zaman %25-40 bandı) → bankala
+    log(`  ✅ ${p.symbol}: ROI %${roi.toFixed(1)} | ADX ${ind.adx} zayıf → kâr alınıyor`);
+    try {
+      await closePosition(env, p.symbol, isLong, Math.abs(amt));
+    } catch (e) {
+      log(`  ⚠️ ${p.symbol} kapatılamadı: ${e.message}`);
+    }
+  }
+}
+
+async function closePosition(env, symbol, isLong, qty) {
+  try { await binanceRequest(env, "DELETE", "/fapi/v1/allOpenOrders", { symbol }); } catch {}
+  await binanceRequest(env, "POST", "/fapi/v1/order", {
+    symbol, side: isLong ? "SELL" : "BUY",
+    type: "MARKET", quantity: qty, reduceOnly: true,
+  });
+}
+
+// Fiyatı kabaca tick'e uygun ondalığa yuvarla (sembol bazlı tam tick almadan güvenli yaklaşım)
+function fmtPrice(p) {
+  const dec = p >= 100 ? 2 : p >= 1 ? 4 : p >= 0.01 ? 6 : 8;
+  return p.toFixed(dec);
+}
+
+async function placeOrder(env, symbol, side, quantity, leverage, slPct, atrPct) {
+  // İzole marj moduna geç (sembol zaten izole ise Binance -4046 döner, yok sayarız)
+  try {
+    await binanceRequest(env, "POST", "/fapi/v1/marginType", { symbol, marginType: MARGIN_TYPE });
+  } catch (e) { /* zaten ISOLATED → sorun değil */ }
   await binanceRequest(env, "POST", "/fapi/v1/leverage", { symbol, leverage });
   const order = await binanceRequest(env, "POST", "/fapi/v1/order", {
     symbol, side, type: "MARKET", quantity,
   });
   const entry = parseFloat(order.avgPrice || order.price);
   const isLong = side === "BUY";
-  const tp = isLong ? entry * (1 + tpPct / 100) : entry * (1 - tpPct / 100);
+
+  // 1) Sert stop-loss (felaket koruması) — pozisyon ne olursa olsun kapanır
   const sl = isLong ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100);
   await binanceRequest(env, "POST", "/fapi/v1/order", {
     symbol, side: isLong ? "SELL" : "BUY",
-    type: "TAKE_PROFIT_MARKET",
-    stopPrice: tp.toFixed(4),
-    closePosition: true, timeInForce: "GTE_GTC",
-  });
-  await binanceRequest(env, "POST", "/fapi/v1/order", {
-    symbol, side: isLong ? "SELL" : "BUY",
     type: "STOP_MARKET",
-    stopPrice: sl.toFixed(4),
+    stopPrice: fmtPrice(sl),
     closePosition: true, timeInForce: "GTE_GTC",
   });
-  return { entry, tp, sl };
+
+  // 2) Trailing take-profit — +%ROI_TAKE_MIN marj kârında devreye girer, sonra trendi takip eder.
+  //    ROI fiyat hareketine çevrilir: roiHedef / kaldıraç.
+  const activationMovePct = ROI_TAKE_MIN / leverage;
+  const activation = isLong
+    ? entry * (1 + activationMovePct / 100)
+    : entry * (1 - activationMovePct / 100);
+  // Geri çekilme payı volatiliteye (ATR) göre, makul sınırlar içinde
+  const callbackRate = Math.min(TRAIL_MAX, Math.max(TRAIL_MIN, +((atrPct || 1) * 1.5).toFixed(1)));
+
+  let tp = activation;
+  try {
+    await binanceRequest(env, "POST", "/fapi/v1/order", {
+      symbol, side: isLong ? "SELL" : "BUY",
+      type: "TRAILING_STOP_MARKET",
+      quantity, reduceOnly: true,
+      activationPrice: fmtPrice(activation),
+      callbackRate,
+    });
+  } catch (e) {
+    // Trailing reddedilirse en az ROI_TAKE_MIN kârını kilitleyen sabit TP'ye düş
+    await binanceRequest(env, "POST", "/fapi/v1/order", {
+      symbol, side: isLong ? "SELL" : "BUY",
+      type: "TAKE_PROFIT_MARKET",
+      stopPrice: fmtPrice(activation),
+      closePosition: true, timeInForce: "GTE_GTC",
+    });
+  }
+  return { entry, tp, sl, activation, callbackRate };
 }
 
 // ── KV Sinyal Geçmişi ──────────────────────────
@@ -409,14 +591,20 @@ async function runBot(env) {
   log("🤖 Bot başlatıldı: " + new Date().toISOString());
 
   try {
-    const [openPositions, balance, tickers] = await Promise.all([
-      getOpenPositions(env),
+    const [balance, tickers] = await Promise.all([
       getAccountBalance(env),
       getAllTickers(),
     ]);
-
-    log(`💰 Bakiye: $${balance.toFixed(2)} | 📊 ${openPositions.length}/5 pozisyon`);
     if (balance < 20) { log("⚠️ Yetersiz bakiye"); return { logs, signals }; }
+
+    // ── ÖNCE AÇIK POZİSYONLARI YÖNET ──
+    log("\n🛡️ Açık pozisyon yönetimi (ADX + trailing)...");
+    try { await managePositions(env, log); }
+    catch (e) { log("  ⚠️ Yönetim hatası: " + e.message); }
+
+    // Yönetim bazı pozisyonları kapatmış olabilir → güncel sayıyı al
+    const openPositions = await getOpenPositions(env);
+    log(`💰 Bakiye: $${balance.toFixed(2)} | 📊 ${openPositions.length}/5 pozisyon`);
 
     // ── PUMP AVCI (Gemini) ──
     log("\n🚀 Pump taraması (Gemini)...");
@@ -457,15 +645,19 @@ async function runBot(env) {
           log(`  ⚠️ Spread çok geniş: ${validation.spread}%`);
           signal.skipReason = "Spread çok geniş";
         } else {
-          const qty = ((balance * 0.30 * decision.leverage) / pump.price).toFixed(3);
+          const lev = decideLeverage(decision, indicators);
+          const qty = ((balance * 0.30 * lev) / pump.price).toFixed(3);
           const result = await placeOrder(env, pump.symbol,
             decision.action === "LONG" ? "BUY" : "SELL",
-            qty, decision.leverage, decision.take_profit_pct, decision.stop_loss_pct);
+            qty, lev, decision.stop_loss_pct, indicators.atrPct);
           signal.executed = true;
           signal.entry = result.entry;
-          signal.tp = result.tp;
+          signal.tp = result.activation;
           signal.sl = result.sl;
-          log(`  ✅ GİRİŞ: $${result.entry} | TP: $${result.tp.toFixed(4)} | SL: $${result.sl.toFixed(4)}`);
+          signal.leverage = lev;
+          signal.adx = indicators.adx;
+          signal.trail = result.callbackRate;
+          log(`  ✅ GİRİŞ: $${result.entry} | ${lev}x izole | Trailing aktivasyon: $${fmtPrice(result.activation)} (geri çekilme %${result.callbackRate}) | SL: $${fmtPrice(result.sl)}`);
         }
       } else {
         log(`  ⏭️ Atlandı`);
@@ -514,15 +706,19 @@ async function runBot(env) {
         if (decision.action !== "SKIP" && decision.confidence >= 70) {
           const validation = await validateEntry(symbol, indicators.currentPrice);
           if (validation.valid) {
-            const qty = ((balance * 0.30 * decision.leverage) / indicators.currentPrice).toFixed(3);
+            const lev = decideLeverage(decision, indicators);
+            const qty = ((balance * 0.30 * lev) / indicators.currentPrice).toFixed(3);
             const result = await placeOrder(env, symbol,
               decision.action === "LONG" ? "BUY" : "SELL",
-              qty, decision.leverage, decision.take_profit_pct, decision.stop_loss_pct);
+              qty, lev, decision.stop_loss_pct, indicators.atrPct);
             signal.executed = true;
             signal.entry = result.entry;
-            signal.tp = result.tp;
+            signal.tp = result.activation;
             signal.sl = result.sl;
-            log(`  ✅ GİRİŞ: $${result.entry}`);
+            signal.leverage = lev;
+            signal.adx = indicators.adx;
+            signal.trail = result.callbackRate;
+            log(`  ✅ GİRİŞ: $${result.entry} | ${lev}x izole | Trailing $${fmtPrice(result.activation)} | SL $${fmtPrice(result.sl)}`);
             signals.push(signal);
             await saveSignal(env, signal);
             break;
@@ -579,6 +775,13 @@ export default {
           price: parseFloat(t.lastPrice),
         }));
       return jsonResp({ topCoins: top, pumps, timestamp: Date.now() });
+    }
+
+    // Kök adres → dashboard'u doğrudan sun
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      return new Response(DASHBOARD_HTML, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
 
     return new Response(

@@ -3,6 +3,11 @@ main = "src/worker.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# dashboard.html'i metin modülü olarak paketle (worker.js içine import edebilmek için)
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+
 [triggers]
 crons = ["*/3 * * * *"]
 

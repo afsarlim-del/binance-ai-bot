@@ -149,8 +149,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 </div>
 
 <script>
-// !! Worker URL'ini buraya yaz !!
-const BASE = 'https://binance-ai-bot.afsarlim.workers.dev';
+// Dashboard artık Worker'ın kendisinden sunulduğu için aynı origin kullanılıyor.
+// Ayrı bir URL yazmaya gerek yok (boş string = aynı adres).
+const BASE = '';
 
 let botRunning = true;
 let refreshTimer = null;
