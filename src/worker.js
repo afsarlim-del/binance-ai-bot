@@ -748,33 +748,43 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/run") {
-      const result = await runBot(env);
-      return jsonResp(result);
-    }
-    if (url.pathname === "/api/status") {
-      const [balance, positions] = await Promise.all([
-        getAccountBalance(env), getOpenPositions(env),
-      ]);
-      return jsonResp({ balance, positions, timestamp: Date.now() });
-    }
-    if (url.pathname === "/api/signals") {
-      return jsonResp(await getSignalHistory(env));
-    }
-    if (url.pathname === "/api/market") {
-      const tickers = await getAllTickers();
-      const pumps = await detectPumps(tickers);
-      const top = tickers
-        .filter((t) => t.symbol.endsWith("USDT") && parseFloat(t.quoteVolume) > 30_000_000)
-        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 20)
-        .map((t) => ({
-          symbol: t.symbol,
-          change: parseFloat(t.priceChangePercent),
-          volume: parseFloat(t.quoteVolume),
-          price: parseFloat(t.lastPrice),
-        }));
-      return jsonResp({ topCoins: top, pumps, timestamp: Date.now() });
+    if (url.pathname.startsWith("/api/")) {
+      try {
+        if (url.pathname === "/api/run") {
+          return jsonResp(await runBot(env));
+        }
+        if (url.pathname === "/api/status") {
+          if (!env.BINANCE_API_KEY || !env.BINANCE_SECRET) {
+            return jsonResp({ error: "BINANCE_API_KEY / BINANCE_SECRET tanımlı değil. Cloudflare > Workers > Settings > Variables altına ekleyin." }, 500);
+          }
+          const [balance, positions] = await Promise.all([
+            getAccountBalance(env), getOpenPositions(env),
+          ]);
+          return jsonResp({ balance, positions, timestamp: Date.now() });
+        }
+        if (url.pathname === "/api/signals") {
+          return jsonResp(await getSignalHistory(env));
+        }
+        if (url.pathname === "/api/market") {
+          const tickers = await getAllTickers();
+          const pumps = await detectPumps(tickers);
+          const top = tickers
+            .filter((t) => t.symbol.endsWith("USDT") && parseFloat(t.quoteVolume) > 30_000_000)
+            .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+            .slice(0, 20)
+            .map((t) => ({
+              symbol: t.symbol,
+              change: parseFloat(t.priceChangePercent),
+              volume: parseFloat(t.quoteVolume),
+              price: parseFloat(t.lastPrice),
+            }));
+          return jsonResp({ topCoins: top, pumps, timestamp: Date.now() });
+        }
+        return jsonResp({ error: "Bilinmeyen endpoint" }, 404);
+      } catch (err) {
+        // Binance/işlem hatasını okunabilir şekilde dashboard'a ilet
+        return jsonResp({ error: String(err.message || err) }, 500);
+      }
     }
 
     // Kök adres → dashboard'u doğrudan sun

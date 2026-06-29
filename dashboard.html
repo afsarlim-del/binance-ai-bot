@@ -182,8 +182,8 @@ function addLog(msg, type = '') {
 async function fetchStatus() {
   try {
     const res = await fetch(BASE + '/api/status');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
     const bal = data.balance || 0;
     document.getElementById('m-balance').textContent = '$' + bal.toFixed(2);
     document.getElementById('m-positions').textContent = (data.positions?.length || 0) + ' / 5';
@@ -196,7 +196,7 @@ async function fetchStatus() {
     addLog('Durum güncellendi — bakiye: $' + bal.toFixed(2), 'ok');
   } catch (e) {
     addLog('Durum alınamadı: ' + e.message, 'err');
-    showError('Worker\'a bağlanılamadı. API key\'leri ve worker URL\'ini kontrol et.');
+    showError('Bağlantı/işlem hatası: ' + e.message);
   }
 }
 
