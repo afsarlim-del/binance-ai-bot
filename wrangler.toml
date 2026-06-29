@@ -8,7 +8,7 @@ crons = ["*/3 * * * *"]
 
 [[kv_namespaces]]
 binding = "BOT_KV"
-id = "BURAYA_KV_ID_GELECEK"
+id = "5dfa25a51b6443a3a337bf5fbe6b53bb"
 
 # Secrets (wrangler secret put ile ekle):
 # BINANCE_API_KEY
