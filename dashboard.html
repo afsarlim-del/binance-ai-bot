@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Binance AI Bot Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f5f7; color: #1a1a1a; min-height: 100vh; }
+  .topbar { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 0 1.5rem; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; display: inline-block; }
+  .dot-off { background: #dc2626; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.25rem; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.25rem; }
+  .metric { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem 1.1rem; }
+  .metric-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .metric-value { font-size: 22px; font-weight: 600; color: #111; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.1rem 1.25rem; }
+  .section-title { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-long { background: #dcfce7; color: #166534; }
+  .badge-short { background: #fee2e2; color: #991b1b; }
+  .badge-skip { background: #f3f4f6; color: #6b7280; }
+  .badge-live { background: #dcfce7; color: #166534; }
+  .badge-stopped { background: #fee2e2; color: #991b1b; }
+  .badge-ai { background: #ede9fe; color: #5b21b6; font-size: 10px; padding: 1px 5px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f3f4f6; }
+  .row:last-child { border-bottom: none; }
+  .sym { font-size: 13px; font-weight: 600; color: #111; min-width: 90px; }
+  .sub { font-size: 12px; color: #6b7280; }
+  .pnl-pos { color: #166534; font-weight: 600; font-size: 13px; }
+  .pnl-neg { color: #991b1b; font-weight: 600; font-size: 13px; }
+  .prog-track { height: 4px; background: #f3f4f6; border-radius: 2px; flex: 1; }
+  .prog-fill { height: 4px; border-radius: 2px; background: #16a34a; }
+  .change-pos { color: #166534; font-size: 13px; font-weight: 600; }
+  .change-neg { color: #991b1b; font-size: 13px; font-weight: 600; }
+  .log-box { background: #0f172a; border-radius: 8px; padding: 10px 12px; max-height: 210px; overflow-y: auto; }
+  .log-line { font-family: 'Menlo', 'Consolas', monospace; font-size: 11px; color: #94a3b8; padding: 1px 0; line-height: 1.7; }
+  .log-line.ok { color: #4ade80; }
+  .log-line.err { color: #f87171; }
+  .log-line.info { color: #e2e8f0; }
+  .btn-run { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-stop { background: #dc2626; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-refresh { background: #fff; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 14px; font-size: 13px; color: #374151; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-refresh:hover { background: #f9fafb; }
+  .topbar-right { display: flex; gap: 8px; align-items: center; }
+  .empty { color: #9ca3af; font-size: 13px; padding: 1.5rem 0; text-align: center; }
+  @media (max-width: 700px) {
+    .grid4 { grid-template-columns: 1fr 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Binance AI Bot</span>
+    <span class="badge badge-live" id="status-badge">CANLI</span>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-refresh" onclick="handleRefresh()">
+      <i class="ti ti-refresh"></i> Yenile
+    </button>
+    <button class="btn-stop" id="btn-toggle" onclick="handleToggle()">
+      <i class="ti ti-player-pause" id="toggle-icon"></i>
+      <span id="toggle-label">Durdur</span>
+    </button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="grid4">
+    <div class="metric">
+      <div class="metric-label">Bakiye</div>
+      <div class="metric-value" id="m-balance">$—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Açık pozisyon</div>
+      <div class="metric-value" id="m-positions">— / 5</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Toplam PnL</div>
+      <div class="metric-value" id="m-pnl">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Son güncelleme</div>
+      <div class="metric-value" style="font-size:15px;" id="m-lastrun">—</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="section-title">Açık pozisyonlar</div>
+      <div id="positions-list"><div class="empty">Yükleniyor...</div></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Pump / dump radar</div>
+      <div id="pump-list"><div class="empty">Yükleniyor...</div></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="section-title">Son sinyaller</div>
+      <div id="signals-list"><div class="empty">Yükleniyor...</div></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Bot logu</div>
+      <div class="log-box" id="log-box">
+        <div class="log-line info">Bağlanılıyor...</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const BASE = 'https://binance-ai-bot.afsarlim.workers.dev';
+let botRunning = true;
+let refreshTimer = null;
+
+function fmt(n) { return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2); }
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function addLog(msg, type = '') {
+  const box = document.getElementById('log-box');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + type;
+  line.textContent = '[' + fmtTime(Date.now()) + '] ' + msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function fetchStatus() {
+  try {
+    const res = await fetch(BASE + '/api/status');
+    const data = await res.json();
+    const bal = data.balance || 0;
+    document.getElementById('m-balance').textContent = '$' + bal.toFixed(2);
+    document.getElementById('m-positions').textContent = (data.positions?.length || 0) + ' / 5';
+    const totalPnl = (data.positions || []).reduce((a, p) => a + (p.pnl || 0), 0);
+    const pnlEl = document.getElementById('m-pnl');
+    pnlEl.textContent = fmt(totalPnl);
+    pnlEl.style.color = totalPnl >= 0 ? '#166534' : '#991b1b';
+    document.getElementById('m-lastrun').textContent = fmtTime(data.timestamp || Date.now());
+    renderPositions(data.positions || []);
+    addLog('Durum güncellendi — bakiye: $' + bal.toFixed(2), 'ok');
+  } catch (e) {
+    addLog('Durum alınamadı: ' + e.message, 'err');
+  }
+}
+
+async function fetchMarket() {
+  try {
+    const res = await fetch(BASE + '/api/market');
+    const data = await res.json();
+    renderPumps(data.pumps || []);
+  } catch (e) {
+    addLog('Market verisi alınamadı', 'err');
+  }
+}
+
+async function fetchSignals() {
+  try {
+    const res = await fetch(BASE + '/api/signals');
+    const data = await res.json();
+    renderSignals(data || []);
+  } catch (e) {
+    addLog('Sinyaller alınamadı', 'err');
+  }
+}
+
+function renderPositions(positions) {
+  const el = document.getElementById('positions-list');
+  if (!positions.length) { el.innerHTML = '<div class="empty">Açık pozisyon yok</div>'; return; }
+  el.innerHTML = positions.map(p => {
+    const pnlClass = p.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+    const side = p.side === 'LONG' ? 'badge-long' : 'badge-short';
+    const pct = Math.min(100, Math.abs((p.pnl / (p.entryPrice || 1)) * 100));
+    return `<div class="row">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+          <span class="sym">${p.symbol}</span>
+          <span class="badge ${side}">${p.side}</span>
+        </div>
+        <div class="sub">Giriş: $${p.entryPrice?.toFixed(4) || '—'}</div>
+        <div class="prog-track" style="margin-top:5px;"><div class="prog-fill" style="width:${pct.toFixed(0)}%"></div></div>
+      </div>
+      <span class="${pnlClass}">${fmt(p.pnl)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderPumps(pumps) {
+  const el = document.getElementById('pump-list');
+  if (!pumps.length) { el.innerHTML = '<div class="empty">Pump/dump tespit edilmedi</div>'; return; }
+  el.innerHTML = pumps.map(p => {
+    const cls = p.recentChange > 0 ? 'change-pos' : 'change-neg';
+    const dir = p.direction === 'PUMP' ? '▲' : '▼';
+    return `<div class="row">
+      <div style="flex:1">
+        <span class="sym">${p.symbol}</span>
+        <span class="sub" style="margin-left:6px;">Vol: ${p.volSpike?.toFixed(1)}x · RSI ${p.rsi}</span>
+      </div>
+      <span class="${cls}">${dir} %${Math.abs(p.recentChange).toFixed(2)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderSignals(signals) {
+  const el = document.getElementById('signals-list');
+  if (!signals.length) { el.innerHTML = '<div class="empty">Henüz sinyal yok</div>'; return; }
+  el.innerHTML = signals.slice(0, 6).map(s => {
+    const bc = s.action === 'LONG' ? 'badge-long' : s.action === 'SHORT' ? 'badge-short' : 'badge-skip';
+    const exec = s.executed
+      ? '<span style="color:#166534;font-size:11px;">✓ işlem açıldı</span>'
+      : '<span style="color:#9ca3af;font-size:11px;">atlandı</span>';
+    return `<div class="row">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+          <span class="sym">${s.symbol}</span>
+          <span class="badge ${bc}">${s.action}</span>
+          <span class="badge badge-ai">${s.ai?.split(' ')[0] || 'AI'}</span>
+        </div>
+        <div class="sub">${s.reason || ''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:#6b7280;">%${s.confidence}</div>
+        ${exec}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function handleRefresh() {
+  addLog('Manuel yenileme...');
+  await Promise.all([fetchStatus(), fetchMarket(), fetchSignals()]);
+}
+
+async function handleToggle() {
+  const btn = document.getElementById('btn-toggle');
+  const icon = document.getElementById('toggle-icon');
+  const label = document.getElementById('toggle-label');
+  const dot = document.getElementById('status-dot');
+  const st = document.getElementById('status-text');
+  const sb = document.getElementById('status-badge');
+
+  if (botRunning) {
+    botRunning = false;
+    clearInterval(refreshTimer);
+    btn.className = 'btn-run';
+    icon.className = 'ti ti-player-play';
+    label.textContent = 'Başlat';
+    dot.className = 'dot dot-off';
+    st.textContent = 'Binance AI Bot';
+    sb.className = 'badge badge-stopped';
+    sb.textContent = 'DURDURULDU';
+    addLog('Bot durduruldu', 'err');
+  } else {
+    botRunning = true;
+    btn.className = 'btn-stop';
+    icon.className = 'ti ti-player-pause';
+    label.textContent = 'Durdur';
+    dot.className = 'dot';
+    st.textContent = 'Binance AI Bot';
+    sb.className = 'badge badge-live';
+    sb.textContent = 'CANLI';
+    addLog('Bot başlatıldı — /api/run tetikleniyor...', 'ok');
+    try {
+      const res = await fetch(BASE + '/api/run');
+      const data = await res.json();
+      (data.logs || []).forEach(l => {
+        const t = l.includes('❌') ? 'err' : l.includes('✅') ? 'ok' : '';
+        addLog(l, t);
+      });
+    } catch (e) {
+      addLog('Bot tetiklenemedi: ' + e.message, 'err');
+    }
+    startAutoRefresh();
+  }
+}
+
+function startAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    if (botRunning) { await fetchStatus(); await fetchSignals(); }
+  }, 30000);
+}
+
+(async () => {
+  await fetchStatus();
+  await fetchMarket();
+  await fetchSignals();
+  startAutoRefresh();
+})();
+</script>
+</body>
+</html>
