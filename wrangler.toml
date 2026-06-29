@@ -10,8 +10,8 @@ crons = ["*/3 * * * *"]
 binding = "BOT_KV"
 id = "5dfa25a51b6443a3a337bf5fbe6b53bb"
 
-# Secrets (wrangler secret put ile ekle):
+# Secrets — Cloudflare Dashboard > Workers > binance-ai-bot > Settings > Variables altına ekle:
 # BINANCE_API_KEY
 # BINANCE_SECRET
-# CLAUDE_API_KEY
-# COINGLASS_API_KEY
+# GEMINI_API_KEY
+# GROQ_API_KEY
